@@ -81,6 +81,7 @@ def main(raw_args=None):
             "request_memory": "4000M",
             "+JobFlavour": "nextweek",
             "periodic_remove": "JobStatus == 5",
+            "should_transfer_files": "NO", 
             "WhenToTransferOutput": "ON_EXIT_OR_EVICT",
             "RequestCpus": "2"
         }
