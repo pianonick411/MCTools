@@ -73,7 +73,7 @@ def main(raw_args=None):
 
     jobs = htcondor.Submit(
         {
-            "executable": f"{gPath}_$(ProcId)/runcmsgrid.sh", 
+            "executable": f"{gPath}$(ProcId)/runcmsgrid.sh", 
             "arguments": "$(chunk_arguments)", 
             "output": f"{outputdir}_$(ProcId).out",
             "error": f"{outputdir}_$(ProcId).err",
