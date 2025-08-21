@@ -33,12 +33,13 @@ def main(raw_args=None):
     parser.add_argument('-i', '--ifile', type=str, required=True, help="Input gridpack.")
     parser.add_argument('-o', '--odir', type=str, required=True, help=" Directory where output is dumped.")
     parser.add_argument('-N', '--NEvents', type=int, default=1000000, help=" Total number of events to simulate. Default = 1000000.")
+    parser.add_argument('-s', '--subfrom', type=str, default='./', help= "The directory from which the executable is stored ")
     parser.add_argument('-S', '--Size', type=int, default=10000, help=" Size of each chunk. Default = 10000.")
     args = parser.parse_args(raw_args)
 
     print("**CalcLHEFilterEff")
     inputGridpack = args.ifile
-    outputdir = args.odir 
+    outputdir = os.path.abspath(args.odir)
     NEvents = args.NEvents
     chunkSize = args.Size
 
@@ -49,6 +50,8 @@ def main(raw_args=None):
         n_jobs = n_jobs_raw + 1 
 
     
+    
+
     seedList = random.sample(range(1, 1000000), n_jobs)
 
     gPackName = inputGridpack.split("/")[-1].rstrip(".tgz")
@@ -59,11 +62,11 @@ def main(raw_args=None):
         if i == 0: 
             if remainder != 0: 
                 # First job has the smaller size of the remainder, the rest of the jobs have the size specified by chunkSize.
-                itemdata.append({"chunk_arguments": f"{remainder} {seedList[i]} 2"})
+                itemdata.append({"chunk_arguments": f"{remainder} {seedList[i]} 1"})
             else: 
-                itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} 2"})
+                itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} 1"})
         else: 
-            itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} 2"})
+            itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} 1"})
         
         openGridpack(inputGridpack, outputdir, i)
 
@@ -73,19 +76,21 @@ def main(raw_args=None):
 
     jobs = htcondor.Submit(
         {
-            "executable": f"{gPath}$(ProcId)/runcmsgrid.sh", 
-            "arguments": "$(chunk_arguments)", 
-            "output": f"{outputdir}_$(ProcId).out",
-            "error": f"{outputdir}_$(ProcId).err",
-            "log": f"{outputdir}.log",
+            # "executable": f"{gPath}$(ProcId)/runcmsgrid.sh", 
+            "executable": f"/bin/cat",
+            # "arguments": "$(chunk_arguments)", 
+            "arguments": "/afs/cern.ch/user/n/nipinto/private/MCTools/README.md",
+            "output": f"{outputdir}/job_$(ProcId).out",
+            "error": f"{outputdir}/job_$(ProcId).err",
+            "log": f"{outputdir}/log.log",
             "request_memory": "4000M",
             "+JobFlavour": "nextweek",
             "periodic_remove": "JobStatus == 5",
-            "should_transfer_files": "NO", 
             "WhenToTransferOutput": "ON_EXIT_OR_EVICT",
-            "RequestCpus": "2"
         }
     )    
+
+    # print(jobs)
     
     schedd = htcondor.Schedd()
     submit_result = schedd.submit(jobs, itemdata = iter(itemdata))  # submit one job for each item in the itemdata
