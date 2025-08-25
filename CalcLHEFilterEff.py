@@ -9,6 +9,11 @@ import sys
 import tarfile
 import pathlib
 from tqdm import tqdm
+import time
+from datetime import datetime
+import getpass
+import re
+import numpy as np
 
 def openGridpack(gridPackFile, odir, chunkNum, subFrom): 
     if not os.path.exists(odir): 
@@ -34,6 +39,64 @@ cd {gpath}{chunkNum}
 ./runcmsgrid.sh $1 $2 $3"""
         f.writelines(output) 
     os.chmod(f"{subFrom}/submit_Chunk_{chunkNum}.sh", 0o777)
+
+
+def job_status_string(code: int) -> str:
+    """Convert Condor JobStatus int to human-readable string."""
+    return {
+        1: "Idle",
+        2: "Running",
+        3: "Removed",
+        4: "Completed",
+        5: "Held",
+        6: "TransferringOutput",
+        7: "Suspended"
+    }.get(code, f"Unknown({code})")
+
+
+
+def wait_for_completion(cluster_id, poll_interval=30, diag_log="job_monitor.log"):
+    schedd = htcondor.Schedd()
+    seen_status = {}
+
+    with open(diag_log, "w") as f:
+        f.write(f"Monitoring cluster {cluster_id}\n")
+        f.write(f"Start time: {datetime.now()}\n\n")
+
+        while True:
+            jobs = list(schedd.query(
+                constraint=f"ClusterId == {cluster_id}",
+                projection=["ClusterId", "ProcId", "JobStatus", "HoldReason", "ExitCode"]
+            ))
+
+            if not jobs:
+                f.write(f"[{datetime.now()}] All jobs are gone from the queue.\n")
+                print(f"Cluster {cluster_id} finished. See {diag_log} for details.")
+                break
+
+
+            for job in jobs:
+                jid = f"{job['ClusterId']}.{job['ProcId']}"
+                status = job_status_string(job["JobStatus"])
+                hold_reason = job.get("HoldReason", "")
+                exit_code = job.get("ExitCode", None)
+
+                # Log only when status changes
+                if seen_status.get(jid) != status:
+                    line = f"[{datetime.now()}] Job {jid} -> {status}"
+                    if hold_reason:
+                        line += f" | HoldReason: {hold_reason}"
+                    if exit_code is not None:
+                        line += f" | ExitCode: {exit_code}"
+                    line += "\n"
+
+                    f.write(line)
+                    f.flush()
+                    print(line.strip())
+
+                seen_status[jid] = status
+
+            time.sleep(poll_interval)
 
 
 
@@ -62,6 +125,11 @@ def main(raw_args=None):
         n_jobs = n_jobs_raw
     else: 
         n_jobs = n_jobs_raw + 1 
+    
+
+    col = htcondor.Collector()
+    credd = htcondor.Credd()
+    credd.add_user_cred(htcondor.CredTypes.Kerberos, None)
 
     
     
@@ -72,23 +140,30 @@ def main(raw_args=None):
     gPath = outputdir+"/"+gPackName+"_"
 
     subFrom = args.subfrom + f"submit_{gPackName}"
+    nCpus = 2
+
+   
     
     itemdata = []
+    nEventlist = []
     for i in tqdm(range(0, n_jobs), desc="Gridpack dirs opened"):
         if i == 0: 
             if remainder != 0: 
                 # First job has the smaller size of the remainder, the rest of the jobs have the size specified by chunkSize.
-                itemdata.append({"chunk_arguments": f"{remainder} {seedList[i]} 1"})
+                itemdata.append({"chunk_arguments": f"{remainder} {seedList[i]} {nCpus}"})
+                nEventlist.append(int(remainder))
             else: 
-                itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} 1"})
+                itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} {nCpus}"})
+                nEventlist.append(int(chunkSize))
         else: 
-            itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} 1"})
+            itemdata.append({"chunk_arguments": f"{chunkSize} {seedList[i]} {nCpus}"})
+            nEventlist.append(int(chunkSize))
         
         openGridpack(inputGridpack, outputdir, i, subFrom)
 
          
     
-
+    print(nEventlist)
 
     jobs = htcondor.Submit(
         {
@@ -100,7 +175,9 @@ def main(raw_args=None):
             "request_memory": "4000M",
             "+JobFlavour": "nextweek",
             "periodic_remove": "JobStatus == 5",
-            "WhenToTransferOutput": "ON_EXIT_OR_EVICT",
+            "should_transfer_files": "YES",
+            'MY.SendCredential': "True", 
+            "WhenToTransferOutput": "ON_EXIT",
 
         }
     )    
@@ -110,8 +187,27 @@ def main(raw_args=None):
     schedd = htcondor.Schedd()
     submit_result = schedd.submit(jobs, itemdata = iter(itemdata))  # submit one job for each item in the itemdata
 
-    print(submit_result.cluster())
+    cluster_id = submit_result.cluster()
+    print("Cluster ID: ", submit_result.cluster())
     
+    wait_for_completion(cluster_id, poll_interval=20)
+
+    # Loop over output files and compile filter efficiencies: 
+    filter_efficiencies = []
+    regex = re.compile("Filter efficiency")
+    for i in tqdm(range(0,n_jobs), desc="Aggregating filter efficiencies."):
+        for LHEFile in glob.glob(gPath+f"{i}/cmsgrid_final.log"):
+                with open (LHEFile, "r") as file: 
+                    for line in file: 
+                        if match :=  regex.search(line): 
+                            filter_efficiencies.append(float(line.rstrip().split(" ")[-2]))
+
+
+    avgFilterEfficiency = np.average(filter_efficiencies)
+
+    print("Overall filter efficiency: ", avgFilterEfficiency)
+    with open(outputdir+"/FilterEfficiency.txt", "w") as outFile: 
+        outFile.write(str(avgFilterEfficiency))
     
     
 
