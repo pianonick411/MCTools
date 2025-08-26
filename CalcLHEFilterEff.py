@@ -21,21 +21,24 @@ def openGridpack(gridPackFile, odir, chunkNum, subFrom):
         os.makedirs(odir, mode=0o777)
         os.chmod(odir, 0o777)
     gPackName = gridPackFile.split("/")[-1].rstrip(".tgz")
-    gpath = odir+"/"+gPackName+"_"
+    gpath = odir+"/"+gPackName+"_"+str(chunkNum)
     # We have to make a directory for each job, because we don't want to have the jobs overwriting each others' output. 
     # In theory, you could modify runcmsgrid.sh to take a command line argument with a new name for each job and only make one directory, but the structure of runcmsgrid.sh isn't consistent across gridpacks, so this would be exceptionally difficult. 
-    if not os.path.exists(gpath+str(chunkNum)): 
-        os.makedirs(gpath+str(chunkNum), mode=0o777)
-        os.chmod(gpath+str(chunkNum), 0o777)
-    with tarfile.open(gridPackFile) as tar: 
-        tar.extractall(path=gpath+str(chunkNum), filter="fully_trusted")
+    if not os.path.exists(gpath): 
+        os.makedirs(gpath, mode=0o777)
+        os.chmod(gpath, 0o777)
+    if os.path.exists(gpath+"/runcmsgrid.sh"): 
+        print("runcmsgrid.sh already found!")
+    else: 
+        with tarfile.open(gridPackFile) as tar: 
+            tar.extractall(path=gpath, filter="fully_trusted")
     if not os.path.exists(subFrom): 
         print(subFrom, " not found! Making ", subFrom)
         os.makedirs(subFrom, mode=0o777)
 
     with open(f"{subFrom}/submit_Chunk_{chunkNum}.sh", "w") as f:
         output = f"""#!/bin/bash
-cd {gpath}{chunkNum}
+cd {gpath}
 ./runcmsgrid.sh $1 $2 $3"""
         f.writelines(output) 
     os.chmod(f"{subFrom}/submit_Chunk_{chunkNum}.sh", 0o777)
@@ -173,7 +176,7 @@ def main(raw_args=None):
             "error": f"{subFrom}/job_$(ProcId).err",
             "log": f"{subFrom}/log.log",
             "request_memory": "4000M",
-            "+JobFlavour": "nextweek",
+            "+JobFlavour": '"nextweek"',
             "periodic_remove": "JobStatus == 5",
             "should_transfer_files": "YES",
             'MY.SendCredential': "True", 
