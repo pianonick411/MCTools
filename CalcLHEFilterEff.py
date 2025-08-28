@@ -21,9 +21,7 @@ def openGridpack(gridPackFile, odir, chunkNum, subFrom):
         os.makedirs(odir, mode=0o777)
         os.chmod(odir, 0o777)
     gPackName = gridPackFile.split("/")[-1].rstrip(".tgz")
-    gpath = odir+"/"+gPackName+"_"+str(chunkNum)
-    # We have to make a directory for each job, because we don't want to have the jobs overwriting each others' output. 
-    # In theory, you could modify runcmsgrid.sh to take a command line argument with a new name for each job and only make one directory, but the structure of runcmsgrid.sh isn't consistent across gridpacks, so this would be exceptionally difficult. 
+    gpath = odir+"/"+gPackName
     if not os.path.exists(gpath): 
         os.makedirs(gpath, mode=0o777)
         os.chmod(gpath, 0o777)
@@ -39,7 +37,10 @@ def openGridpack(gridPackFile, odir, chunkNum, subFrom):
     with open(f"{subFrom}/submit_Chunk_{chunkNum}.sh", "w") as f:
         output = f"""#!/bin/bash
 cd {gpath}
-./runcmsgrid.sh $1 $2 $3"""
+cp runcmsgrid.sh runcmsgrid_{chunkNum}.sh
+sed -i 's/cmsgrid/cmsgrid_{chunkNum}/g' runcmsgrid_{chunkNum}.sh
+sed -i 's/myDir=powhegbox/myDir=powhegbox_{chunkNum}/g' runcmsgrid_{chunkNum}.sh
+./runcmsgrid_{chunkNum}.sh $1 $2 $3"""
         f.writelines(output) 
     os.chmod(f"{subFrom}/submit_Chunk_{chunkNum}.sh", 0o777)
 
@@ -140,7 +141,7 @@ def main(raw_args=None):
     seedList = random.sample(range(1, 1000000), n_jobs)
 
     gPackName = inputGridpack.split("/")[-1].rstrip(".tgz")
-    gPath = outputdir+"/"+gPackName+"_"
+    gPath = outputdir+"/"+gPackName
 
     subFrom = args.subfrom + f"submit_{gPackName}"
     nCpus = 2
@@ -199,7 +200,7 @@ def main(raw_args=None):
     filter_efficiencies = []
     regex = re.compile("Filter efficiency")
     for i in tqdm(range(0,n_jobs), desc="Aggregating filter efficiencies."):
-        for LHEFile in glob.glob(gPath+f"{i}/cmsgrid_final.log"):
+        for LHEFile in glob.glob(gPath+f"/cmsgrid_{i}_final.log"):
                 with open (LHEFile, "r") as file: 
                     for line in file: 
                         if match :=  regex.search(line): 
