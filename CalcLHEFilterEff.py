@@ -39,6 +39,7 @@ def openGridpack(gridPackFile, odir, chunkNum, subFrom):
 cd {gpath}
 cp runcmsgrid.sh runcmsgrid_{chunkNum}.sh
 sed -i 's/cmsgrid/cmsgrid_{chunkNum}/g' runcmsgrid_{chunkNum}.sh
+sed -i 's/${{cmssw_version}}\/s/$LHEWORKDIR\/${{cmssw_version}}\/s/g' runcmsgrid_{chunkNum}.sh 
 sed -i 's/myDir=powhegbox/myDir=powhegbox_{chunkNum}/g' runcmsgrid_{chunkNum}.sh
 ./runcmsgrid_{chunkNum}.sh $1 $2 $3"""
         f.writelines(output) 
@@ -198,18 +199,24 @@ def main(raw_args=None):
 
     # Loop over output files and compile filter efficiencies: 
     filter_efficiencies = []
+    matchedFiles = 0 
     regex = re.compile("Filter efficiency")
     for i in tqdm(range(0,n_jobs), desc="Aggregating filter efficiencies."):
         for LHEFile in glob.glob(gPath+f"/cmsgrid_{i}_final.log"):
                 with open (LHEFile, "r") as file: 
                     for line in file: 
                         if match :=  regex.search(line): 
+                            matchedFiles += 1
                             filter_efficiencies.append(float(line.rstrip().split(" ")[-2]))
 
 
     avgFilterEfficiency = np.average(filter_efficiencies)
+    nTotal = matchedFiles*chunkSize
+    nPassed = avgFilterEfficiency*nTotal/100
+    unc = 100*np.sqrt(nPassed)/nTotal
+    
 
-    print("Overall filter efficiency: ", avgFilterEfficiency)
+    print("Overall filter efficiency: ", avgFilterEfficiency, " ± ", unc)
     with open(outputdir+"/FilterEfficiency.txt", "w") as outFile: 
         outFile.write(str(avgFilterEfficiency))
     
